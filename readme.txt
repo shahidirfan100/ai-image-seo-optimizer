@@ -3,7 +3,7 @@ Contributors: shahidirfan
 Tags: image seo, alt text, ai, openrouter, nvidia, woocommerce, media library
 Requires at least: 6.2
 Requires PHP: 8.0
-Stable tag: 1.0.0
+Stable tag: 1.2.0
 License: GPLv2 or later
 
 BYOK AI image SEO for WordPress using OpenRouter and NVIDIA vision models.

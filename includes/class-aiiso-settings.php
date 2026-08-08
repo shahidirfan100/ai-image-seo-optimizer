@@ -50,7 +50,7 @@ final class AIISO_Settings {
         return array_key_exists( $key, $all ) ? $all[ $key ] : $default;
     }
 
-    public static function save( array $input ): void {
+    public static function save( array $input ) {
         $old = self::get_all();
         $clean = self::defaults();
 
@@ -86,6 +86,49 @@ final class AIISO_Settings {
         }
 
         update_option( self::OPTION, $clean, false );
+
+        // Verify that provider credentials/models can be read back immediately.
+        foreach ( array( 'openrouter', 'nvidia' ) as $provider ) {
+            $key_field   = $provider . '_keys';
+            $model_field = $provider . '_models';
+
+            $submitted_key = trim( (string) wp_unslash( $input[ $key_field ] ?? '' ) );
+            if ( '' !== $submitted_key && empty( $input[ 'clear_' . $key_field ] ) ) {
+                $expected = self::sanitize_keys( $submitted_key );
+                $actual   = implode( "\n", self::keys( $provider ) );
+                if ( $expected !== $actual ) {
+                    return new WP_Error( 'aiiso_key_save_failed', ucfirst( $provider ) . ' API key could not be saved or decrypted. Please re-enter it.' );
+                }
+            }
+
+            if ( array_key_exists( $model_field, $input ) ) {
+                $expected_models = self::normalize_lines( sanitize_textarea_field( wp_unslash( (string) $input[ $model_field ] ) ) );
+                $actual_models   = implode( "\n", self::models( $provider ) );
+                if ( $expected_models !== $actual_models ) {
+                    return new WP_Error( 'aiiso_model_save_failed', ucfirst( $provider ) . ' model list could not be saved.' );
+                }
+            }
+        }
+
+        return true;
+    }
+
+    public static function key_summary( string $provider ): array {
+        $keys = self::keys( $provider );
+        if ( ! $keys ) {
+            return array( 'count' => 0, 'masked' => '' );
+        }
+        $last = end( $keys );
+        $tail = strlen( $last ) > 6 ? substr( $last, -6 ) : $last;
+        return array(
+            'count'  => count( $keys ),
+            'masked' => '••••••' . $tail,
+        );
+    }
+
+    private static function normalize_lines( string $raw ): string {
+        $items = array_values( array_filter( array_map( 'trim', preg_split( '/[\r\n,]+/', $raw ) ) ) );
+        return implode( "\n", $items );
     }
 
     public static function keys( string $provider ): array {

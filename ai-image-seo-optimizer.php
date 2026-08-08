@@ -2,7 +2,7 @@
 /**
  * Plugin Name: AI Image SEO Optimizer
  * Description: BYOK AI image SEO for WordPress. Generates ALT text, Media Library title, caption, description, keyword data and SEO filename suggestions using OpenRouter and NVIDIA vision models. Supports new uploads, bulk existing media, WooCommerce context, SEO focus keywords, background processing, history and safe upload-time filename renaming.
- * Version: 1.0.0
+ * Version: 1.2.0
  * Requires at least: 6.2
  * Requires PHP: 8.0
  * Author: Shahid Irfan
@@ -11,7 +11,7 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-define( 'AIISO_VERSION', '1.0.0' );
+define( 'AIISO_VERSION', '1.2.0' );
 define( 'AIISO_FILE', __FILE__ );
 define( 'AIISO_DIR', plugin_dir_path( __FILE__ ) );
 define( 'AIISO_URL', plugin_dir_url( __FILE__ ) );

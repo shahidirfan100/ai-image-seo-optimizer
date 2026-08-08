@@ -19,25 +19,132 @@ final class AIISO_Provider {
         return new WP_Error( 'aiiso_all_providers_failed', implode( ' | ', $errors ) ?: 'No AI provider is configured.' );
     }
 
-    public static function test( string $provider ) {
-        $settings = AIISO_Settings::get_all();
-        $keys = AIISO_Settings::keys( $provider );
-        $models = AIISO_Settings::models( $provider );
-        if ( ! $keys || ! $models ) { return new WP_Error( 'aiiso_missing_config', 'Add at least one API key and one model first.' ); }
-        $url = 'openrouter' === $provider ? self::OR_URL : self::NV_URL;
-        $headers = self::headers( $provider, $keys[0] );
+    public static function test( string $provider, string $key_override = '', string $model_override = '' ) {
+        if ( ! in_array( $provider, array( 'openrouter', 'nvidia' ), true ) ) {
+            return new WP_Error( 'aiiso_invalid_provider', 'Choose OpenRouter or NVIDIA.' );
+        }
+
+        $keys   = '' !== trim( $key_override ) ? array( trim( $key_override ) ) : AIISO_Settings::keys( $provider );
+        $models = '' !== trim( $model_override ) ? array( trim( $model_override ) ) : AIISO_Settings::models( $provider );
+        if ( ! $keys ) {
+            return new WP_Error( 'aiiso_missing_key', 'No saved API key was found for ' . ucfirst( $provider ) . '.' );
+        }
+        if ( ! $models ) {
+            return new WP_Error( 'aiiso_missing_model', 'Add at least one model ID for ' . ucfirst( $provider ) . '.' );
+        }
+
+        $url   = 'openrouter' === $provider ? self::OR_URL : self::NV_URL;
+        $key   = trim( $keys[0] );
+        $model = trim( $models[0] );
+
+        // A tiny real image is intentionally included so this validates the selected
+        // model as a vision model instead of merely checking that text chat works.
+        $test_image = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBgoICAgLCgoLDhgQDg0NDh0VFhEYIx8lJCIfIiEmKzcvJik0KSEiMEExNDk7Pj4+JS5ESUM8SDc9Pjv/2wBDAQoLCw4NDhwQEBw7KCIoOzs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozs7Ozv/wAARCABAAEADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/ALMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/2Q==';
         $payload = array(
-            'model' => $models[0],
-            'messages' => array( array( 'role' => 'user', 'content' => 'Reply with only: OK' ) ),
-            'temperature' => 0,
-            'max_tokens' => 8,
-            'stream' => false,
+            'model' => $model,
+            'messages' => array(
+                array(
+                    'role' => 'user',
+                    'content' => array(
+                        array( 'type' => 'text', 'text' => 'Connection test. Inspect the attached image and reply with only OK.' ),
+                        array( 'type' => 'image_url', 'image_url' => array( 'url' => $test_image ) ),
+                    ),
+                ),
+            ),
+            'max_tokens' => 24,
+            'stream'     => false,
         );
-        $resp = wp_safe_remote_post( $url, array( 'headers' => $headers, 'body' => wp_json_encode( $payload ), 'timeout' => 30 ) );
-        if ( is_wp_error( $resp ) ) { return $resp; }
-        $code = wp_remote_retrieve_response_code( $resp );
-        if ( 200 !== $code ) { return new WP_Error( 'aiiso_api_test', 'HTTP ' . $code . ': ' . substr( wp_remote_retrieve_body( $resp ), 0, 300 ) ); }
-        return true;
+
+        $started = microtime( true );
+        $resp = wp_remote_post( $url, array(
+            'headers'     => self::headers( $provider, $key ),
+            'body'        => wp_json_encode( $payload ),
+            'timeout'     => 45,
+            'redirection' => 3,
+            'sslverify'   => true,
+            'user-agent'  => 'AI-Image-SEO-Optimizer/' . ( defined( 'AIISO_VERSION' ) ? AIISO_VERSION : '1.0' ) . '; ' . home_url( '/' ),
+        ) );
+        $elapsed_ms = (int) round( ( microtime( true ) - $started ) * 1000 );
+
+        if ( is_wp_error( $resp ) ) {
+            self::store_health( $provider, false, $model, 0, $elapsed_ms, $resp->get_error_message() );
+            return new WP_Error( 'aiiso_network_test', 'Network request failed: ' . $resp->get_error_message() );
+        }
+
+        $code = (int) wp_remote_retrieve_response_code( $resp );
+        $body = (string) wp_remote_retrieve_body( $resp );
+        $json = json_decode( $body, true );
+        if ( 200 !== $code ) {
+            $message = self::api_error_message( $json, $body );
+            self::store_health( $provider, false, $model, $code, $elapsed_ms, $message );
+            return new WP_Error( 'aiiso_api_test', strtoupper( $provider ) . ' returned HTTP ' . $code . ': ' . $message );
+        }
+
+        $content = self::response_content( is_array( $json ) ? $json : array() );
+        if ( '' === trim( $content ) ) {
+            self::store_health( $provider, false, $model, $code, $elapsed_ms, 'HTTP 200 but no completion text was returned.' );
+            return new WP_Error( 'aiiso_empty_test', 'The provider returned HTTP 200, but the selected model returned no completion text.' );
+        }
+
+        self::store_health( $provider, true, $model, $code, $elapsed_ms, 'Live vision request succeeded.' );
+        return array(
+            'provider'   => $provider,
+            'model'      => $model,
+            'http_code'  => $code,
+            'latency_ms' => $elapsed_ms,
+            'content'    => mb_substr( trim( $content ), 0, 120 ),
+        );
+    }
+
+    public static function health( string $provider ): array {
+        $all = get_option( 'aiiso_provider_health', array() );
+        return is_array( $all ) && isset( $all[ $provider ] ) && is_array( $all[ $provider ] ) ? $all[ $provider ] : array();
+    }
+
+    private static function store_health( string $provider, bool $ok, string $model, int $code, int $latency_ms, string $message ): void {
+        $all = get_option( 'aiiso_provider_health', array() );
+        if ( ! is_array( $all ) ) { $all = array(); }
+        $all[ $provider ] = array(
+            'ok'         => $ok ? 1 : 0,
+            'model'      => sanitize_text_field( $model ),
+            'http_code'  => $code,
+            'latency_ms' => $latency_ms,
+            'message'    => sanitize_text_field( mb_substr( $message, 0, 300 ) ),
+            'tested_at'  => time(),
+        );
+        update_option( 'aiiso_provider_health', $all, false );
+    }
+
+    private static function response_content( array $json ): string {
+        $content = $json['choices'][0]['message']['content'] ?? '';
+        if ( is_string( $content ) ) { return $content; }
+        if ( is_array( $content ) ) {
+            $parts = array();
+            foreach ( $content as $part ) {
+                if ( is_string( $part ) ) { $parts[] = $part; }
+                elseif ( is_array( $part ) && isset( $part['text'] ) ) { $parts[] = (string) $part['text']; }
+            }
+            return implode( ' ', $parts );
+        }
+        return '';
+    }
+
+    private static function api_error_message( $json, string $body ): string {
+        if ( is_array( $json ) ) {
+            $candidates = array(
+                $json['error']['message'] ?? null,
+                $json['message'] ?? null,
+                $json['detail'] ?? null,
+                $json['error'] ?? null,
+            );
+            foreach ( $candidates as $candidate ) {
+                if ( is_string( $candidate ) && '' !== trim( $candidate ) ) {
+                    return mb_substr( wp_strip_all_tags( trim( $candidate ) ), 0, 300 );
+                }
+            }
+        }
+        $text = trim( wp_strip_all_tags( $body ) );
+        return '' !== $text ? mb_substr( $text, 0, 300 ) : 'Unknown provider error.';
     }
 
     private static function provider_order( string $provider, string $strategy ): array {
@@ -84,7 +191,7 @@ final class AIISO_Provider {
                 'stream' => false,
             );
 
-            $resp = wp_safe_remote_post( $url, array(
+            $resp = wp_remote_post( $url, array(
                 'headers' => self::headers( $provider, $key ),
                 'body'    => wp_json_encode( $payload ),
                 'timeout' => $timeout,
@@ -98,8 +205,8 @@ final class AIISO_Provider {
             $body = wp_remote_retrieve_body( $resp );
             if ( 200 === $code ) {
                 $json = json_decode( $body, true );
-                $content = $json['choices'][0]['message']['content'] ?? '';
-                $meta = self::parse( is_string( $content ) ? $content : '' );
+                $content = self::response_content( is_array( $json ) ? $json : array() );
+                $meta = self::parse( $content );
                 if ( is_wp_error( $meta ) ) { $last_error = $meta->get_error_message(); continue; }
                 $meta['_provider'] = $provider;
                 $meta['_model'] = $model;
@@ -120,7 +227,7 @@ final class AIISO_Provider {
     }
 
     private static function headers( string $provider, string $key ): array {
-        $h = array( 'Authorization' => 'Bearer ' . trim( $key ), 'Content-Type' => 'application/json' );
+        $h = array( 'Authorization' => 'Bearer ' . trim( $key ), 'Content-Type' => 'application/json', 'Accept' => 'application/json' );
         if ( 'openrouter' === $provider ) {
             $h['HTTP-Referer'] = home_url( '/' );
             $h['X-Title'] = 'AI Image SEO Optimizer';
