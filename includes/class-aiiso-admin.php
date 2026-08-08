@@ -32,6 +32,7 @@ final class AIISO_Admin {
     }
 
     private static function is_plugin_page(): bool {
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only screen detection; no state is changed.
         $page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( (string) $_GET['page'] ) ) : '';
         return in_array( $page, array( 'aiiso', 'aiiso-library', 'aiiso-settings', 'aiiso-logs' ), true );
     }
@@ -117,10 +118,15 @@ final class AIISO_Admin {
 
     private static function stats(): array {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Read-only aggregate count for the plugin dashboard.
         $total = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type='attachment' AND post_mime_type LIKE 'image/%'" );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Read-only aggregate count for the plugin dashboard.
         $missing = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->posts} p LEFT JOIN {$wpdb->postmeta} m ON (p.ID=m.post_id AND m.meta_key='_wp_attachment_image_alt') WHERE p.post_type='attachment' AND p.post_mime_type LIKE 'image/%' AND (m.meta_value IS NULL OR TRIM(m.meta_value)='')" );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Read-only aggregate count for the plugin dashboard.
         $processed = (int) $wpdb->get_var( "SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta} WHERE meta_key='_aiiso_status' AND meta_value='done'" );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Read-only aggregate count for the plugin dashboard.
         $errors = (int) $wpdb->get_var( "SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta} WHERE meta_key='_aiiso_status' AND meta_value='error'" );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Read-only aggregate count for the plugin dashboard.
         $queued = (int) $wpdb->get_var( "SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta} WHERE meta_key='_aiiso_status' AND meta_value IN ('queued','processing')" );
         return compact( 'total', 'missing', 'processed', 'errors', 'queued' );
     }
@@ -279,13 +285,17 @@ final class AIISO_Admin {
 
     public static function library_page(): void {
         self::notice();
-        $paged = max( 1, absint( $_GET['paged'] ?? 1 ) );
-        $filter = sanitize_key( $_GET['filter'] ?? 'all' );
-        $search = sanitize_text_field( wp_unslash( $_GET['s'] ?? '' ) );
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only library filters; no state is changed.
+        $request = wp_unslash( $_GET );
+        $paged = max( 1, absint( $request['paged'] ?? 1 ) );
+        $filter = sanitize_key( $request['filter'] ?? 'all' );
+        $search = sanitize_text_field( $request['s'] ?? '' );
         $args = array( 'post_type'=>'attachment', 'post_status'=>'inherit', 'post_mime_type'=>'image', 'posts_per_page'=>24, 'paged'=>$paged, 'orderby'=>'ID', 'order'=>'DESC', 's'=>$search );
         if ( 'missing' === $filter ) {
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query -- User-selected Media Library filter, paginated to 24 items.
             $args['meta_query'] = array( 'relation'=>'OR', array( 'key'=>'_wp_attachment_image_alt','compare'=>'NOT EXISTS' ), array( 'key'=>'_wp_attachment_image_alt','value'=>'','compare'=>'=' ) );
         } elseif ( in_array( $filter, array( 'done','error','queued' ), true ) ) {
+            // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key,WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- User-selected Media Library status filter, paginated to 24 items.
             $args['meta_key'] = '_aiiso_status'; $args['meta_value'] = $filter;
         }
         $q = new WP_Query( $args );
@@ -654,11 +664,10 @@ final class AIISO_Admin {
             $type = in_array( $flash['type'] ?? '', array( 'success', 'error', 'warning', 'info' ), true ) ? $flash['type'] : 'info';
             echo '<div class="notice notice-' . esc_attr( $type ) . ' is-dismissible"><p>' . esc_html( $flash['message'] ) . '</p></div>';
         }
-        if ( ! empty( $_GET['aiiso_msg'] ) ) {
-            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html( wp_unslash( $_GET['aiiso_msg'] ) ) . '</p></div>';
-        }
-        if ( isset( $_GET['aiiso_queued'] ) ) {
-            echo '<div class="notice notice-success is-dismissible"><p>Queued ' . esc_html( absint( $_GET['aiiso_queued'] ) ) . ' image(s).</p></div>';
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Informational count added by WordPress bulk-action redirect; no state is changed.
+        $queued_count = isset( $_GET['aiiso_queued'] ) ? absint( wp_unslash( $_GET['aiiso_queued'] ) ) : null;
+        if ( null !== $queued_count ) {
+            echo '<div class="notice notice-success is-dismissible"><p>Queued ' . esc_html( $queued_count ) . ' image(s).</p></div>';
         }
     }
 

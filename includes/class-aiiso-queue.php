@@ -22,11 +22,41 @@ final class AIISO_Queue {
     public static function bulk_enqueue( string $mode = 'missing', bool $force = false, int $limit = 5000 ): int {
         global $wpdb;
         $limit = max( 1, min( 10000, $limit ) );
-        $sql = "SELECT p.ID FROM {$wpdb->posts} p LEFT JOIN {$wpdb->postmeta} a ON (p.ID=a.post_id AND a.meta_key='_wp_attachment_image_alt') WHERE p.post_type='attachment' AND p.post_mime_type LIKE 'image/%'";
-        if ( 'missing' === $mode ) { $sql .= " AND (a.meta_value IS NULL OR TRIM(a.meta_value)='')"; }
-        elseif ( 'errors' === $mode ) { $sql .= " AND EXISTS (SELECT 1 FROM {$wpdb->postmeta} s WHERE s.post_id=p.ID AND s.meta_key='_aiiso_status' AND s.meta_value='error')"; }
-        $sql .= $wpdb->prepare( ' ORDER BY p.ID ASC LIMIT %d', $limit );
-        $ids = $wpdb->get_col( $sql );
+
+        if ( 'missing' === $mode ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Bulk attachment ID lookup; results are immediately queued and not reused.
+            $ids = $wpdb->get_col( $wpdb->prepare(
+                "SELECT p.ID FROM %i p LEFT JOIN %i a ON (p.ID=a.post_id AND a.meta_key=%s) WHERE p.post_type=%s AND p.post_mime_type LIKE %s AND (a.meta_value IS NULL OR TRIM(a.meta_value)='') ORDER BY p.ID ASC LIMIT %d",
+                $wpdb->posts,
+                $wpdb->postmeta,
+                '_wp_attachment_image_alt',
+                'attachment',
+                'image/%',
+                $limit
+            ) );
+        } elseif ( 'errors' === $mode ) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Bulk attachment ID lookup; results are immediately queued and not reused.
+            $ids = $wpdb->get_col( $wpdb->prepare(
+                "SELECT p.ID FROM %i p INNER JOIN %i s ON (p.ID=s.post_id) WHERE p.post_type=%s AND p.post_mime_type LIKE %s AND s.meta_key=%s AND s.meta_value=%s ORDER BY p.ID ASC LIMIT %d",
+                $wpdb->posts,
+                $wpdb->postmeta,
+                'attachment',
+                'image/%',
+                '_aiiso_status',
+                'error',
+                $limit
+            ) );
+        } else {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Bulk attachment ID lookup; results are immediately queued and not reused.
+            $ids = $wpdb->get_col( $wpdb->prepare(
+                "SELECT ID FROM %i WHERE post_type=%s AND post_mime_type LIKE %s ORDER BY ID ASC LIMIT %d",
+                $wpdb->posts,
+                'attachment',
+                'image/%',
+                $limit
+            ) );
+        }
+
         $count = 0;
         foreach ( $ids as $id ) { if ( self::enqueue( (int) $id, $force ) ) { $count++; } }
         return $count;

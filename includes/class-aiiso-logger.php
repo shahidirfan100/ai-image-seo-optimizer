@@ -26,6 +26,7 @@ final class AIISO_Logger {
 
     public static function add( int $attachment_id, string $status, string $message, string $provider = '', string $model = '' ): void {
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Writes to the plugin-owned log table.
         $wpdb->insert( self::table(), array(
             'attachment_id' => $attachment_id,
             'status'        => sanitize_key( $status ),
@@ -39,11 +40,13 @@ final class AIISO_Logger {
     public static function recent( int $limit = 50 ): array {
         global $wpdb;
         $limit = max( 1, min( 200, $limit ) );
-        return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM ' . self::table() . ' ORDER BY id DESC LIMIT %d', $limit ), ARRAY_A ) ?: array();
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Small read from the plugin-owned log table.
+        return $wpdb->get_results( $wpdb->prepare( 'SELECT * FROM %i ORDER BY id DESC LIMIT %d', self::table(), $limit ), ARRAY_A ) ?: array();
     }
 
     public static function prune(): void {
         global $wpdb;
-        $wpdb->query( $wpdb->prepare( 'DELETE FROM ' . self::table() . ' WHERE created_at < %s', gmdate( 'Y-m-d H:i:s', time() - 90 * DAY_IN_SECONDS ) ) );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Maintenance of the plugin-owned log table.
+        $wpdb->query( $wpdb->prepare( 'DELETE FROM %i WHERE created_at < %s', self::table(), gmdate( 'Y-m-d H:i:s', time() - 90 * DAY_IN_SECONDS ) ) );
     }
 }

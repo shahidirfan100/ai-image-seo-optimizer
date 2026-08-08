@@ -133,10 +133,12 @@ final class AIISO_Processor {
 
     private static function find_woo_product( int $attachment_id ): int {
         global $wpdb;
-        $id = (int) $wpdb->get_var( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key='_thumbnail_id' AND meta_value=%d LIMIT 1", $attachment_id ) );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Targeted WooCommerce attachment relationship lookup.
+        $id = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT post_id FROM %i WHERE meta_key=%s AND meta_value=%d LIMIT 1', $wpdb->postmeta, '_thumbnail_id', $attachment_id ) );
         if ( $id ) { return $id; }
         $needle = '%' . $wpdb->esc_like( (string) $attachment_id ) . '%';
-        $ids = $wpdb->get_col( $wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key='_product_image_gallery' AND meta_value LIKE %s LIMIT 10", $needle ) );
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Targeted WooCommerce gallery relationship lookup, limited to 10 candidates.
+        $ids = $wpdb->get_col( $wpdb->prepare( 'SELECT post_id FROM %i WHERE meta_key=%s AND meta_value LIKE %s LIMIT 10', $wpdb->postmeta, '_product_image_gallery', $needle ) );
         foreach ( $ids as $pid ) {
             $gallery = array_map( 'absint', explode( ',', (string) get_post_meta( $pid, '_product_image_gallery', true ) ) );
             if ( in_array( $attachment_id, $gallery, true ) ) { return (int) $pid; }

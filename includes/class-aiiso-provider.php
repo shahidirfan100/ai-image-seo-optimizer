@@ -252,7 +252,7 @@ final class AIISO_Provider {
             $saved = $editor->save( $tmp, 'image/jpeg' );
             if ( ! is_wp_error( $saved ) && is_readable( $saved['path'] ) ) {
                 $bytes = file_get_contents( $saved['path'] );
-                @unlink( $saved['path'] );
+                wp_delete_file( $saved['path'] );
                 return array( $bytes, 'image/jpeg' );
             }
         }

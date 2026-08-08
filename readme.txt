@@ -1,9 +1,10 @@
 === AI Image SEO Optimizer ===
 Contributors: shahidirfan
-Tags: image seo, alt text, ai, openrouter, nvidia, woocommerce, media library
+Tags: image seo, alt text, ai, openrouter, media library
 Requires at least: 6.2
+Tested up to: 7.0
 Requires PHP: 8.0
-Stable tag: 1.2.0
+Stable tag: 1.2.1
 License: GPLv2 or later
 
 BYOK AI image SEO for WordPress using OpenRouter and NVIDIA vision models.

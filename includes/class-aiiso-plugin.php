@@ -23,7 +23,9 @@ final class AIISO_Plugin {
     public function upload_prefilter( array $file ): array {
         if ( empty( AIISO_Settings::get( 'auto_new_uploads', 1 ) ) || empty( AIISO_Settings::get( 'safe_rename_new_uploads', 0 ) ) ) { return $file; }
         if ( empty( $file['tmp_name'] ) || empty( $file['type'] ) || ! str_starts_with( (string) $file['type'], 'image/' ) ) { return $file; }
-        $parent = absint( $_REQUEST['post_id'] ?? $_REQUEST['post'] ?? 0 );
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only upload context supplied by core; it only improves AI context and changes no permissions.
+        $request = wp_unslash( $_REQUEST );
+        $parent = absint( $request['post_id'] ?? $request['post'] ?? 0 );
         $meta = AIISO_Processor::generate_for_upload( $file['tmp_name'], $file['name'], $parent );
         if ( is_wp_error( $meta ) ) { AIISO_Logger::add( 0, 'error', 'Upload-time AI rename skipped: ' . $meta->get_error_message() ); return $file; }
         $ext = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
